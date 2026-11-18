@@ -1,4 +1,4 @@
-import { Store, LocalAdapter } from './store.js';
+import { Store } from './store.js';
 import { monthKey, addMonths, monthLabel, setCurrency } from './util.js';
 import { openTxSheet, toast } from './ui.js';
 import * as home from './views/home.js';
@@ -14,7 +14,7 @@ const TITLES = { home: 'Overview', current: 'This month', add: 'Add', stats: 'St
 const state = { month: monthKey(), tab: 'home', query: '' };
 try { const m = sessionStorage.getItem('budget.month'); if (/^\d{4}-\d{2}$/.test(m)) state.month = m; } catch { /* ignore */ }
 
-const store = new Store(new LocalAdapter());
+const store = new Store();
 const root = document.getElementById('view');
 
 const ctx = {
@@ -55,10 +55,46 @@ const shared = {
   'month-next'() { ctx.setMonth(addMonths(state.month, 1)); },
   'month-today'() { ctx.setMonth(monthKey()); },
   'pick-month'(el) { ctx.setMonth(el.dataset.month); },
+  async 'sync-now'() {
+    if (!store.connected) { ctx.go('settings'); return; }
+    try { await store.pull(); toast('Up to date with the Google Sheet'); } catch (e) { toast(`Sync failed: ${e.message}`); }
+  },
 };
+
+/* ---------- sync status + invite links ---------- */
+const SYNC_TEXT = {
+  synced: '✓ Synced', syncing: '↻ Syncing…', pending: '↑ Saving…', offline: '⏸ Offline', error: '⚠ Sync error',
+};
+function renderSync() {
+  const b = document.getElementById('syncBtn');
+  const st = store.sync.state;
+  b.hidden = st === 'local';
+  b.dataset.state = st;
+  const n = store.pending.length;
+  b.textContent = SYNC_TEXT[st] + ((st === 'offline' || st === 'error') && n ? ` · ${n} waiting` : '');
+  b.title = store.sync.error || 'Tap to sync now';
+}
+store.onSync(() => { renderSync(); if (state.tab === 'settings' && store.connected) render(); });
+
+async function handleInvite(query) {
+  const p = new URLSearchParams(query);
+  window.history.replaceState(null, '', '#/settings'); // don't keep the secret in the address bar
+  const url = p.get('u'), key = p.get('k');
+  if (!url || !key) return;
+  if (store.connected && store.syncConfig()?.url === url) { toast('Already connected'); return; }
+  if (!confirm('Connect this device to your shared Google Sheet?\n\nThe budget on this device will be replaced by the data from the sheet.')) return;
+  toast('Connecting…');
+  try {
+    const n = await store.connect(url, key);
+    toast(`Connected · ${n} transactions loaded`);
+  } catch (e) {
+    alert(`Could not connect: ${e.message}`);
+  }
+}
 
 function route() {
   const [tab, query = ''] = location.hash.replace(/^#\/?/, '').split('?');
+  if (tab === 'connect') { handleInvite(query).then(route); return; }
   state.tab = views[tab] ? tab : 'home';
   state.query = query;
   views[state.tab].enter?.(ctx);
@@ -100,6 +136,19 @@ store.subscribe(render);
 await store.init();
 window.addEventListener('hashchange', route);
 route();
+renderSync();
+
+// Keep both phones up to date: on start, when the app comes back to the
+// foreground, when the connection returns, and every 2 minutes while open.
+const autoPull = (minAgeMs) => {
+  if (!store.connected || document.visibilityState !== 'visible') return;
+  if (Date.now() - store.sync.lastPull < minAgeMs) { store.flush(); return; }
+  store.pull().catch(() => {});
+};
+autoPull(0);
+document.addEventListener('visibilitychange', () => autoPull(15000));
+window.addEventListener('online', () => autoPull(0));
+setInterval(() => autoPull(110000), 120000);
 
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
   navigator.serviceWorker.register('sw.js').catch(() => {});

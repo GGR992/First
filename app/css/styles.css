@@ -88,7 +88,19 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 16px 0; }
   border-bottom: 1px solid var(--line);
 }
 .topbar-row { display: flex; align-items: center; justify-content: space-between; max-width: 640px; margin: 0 auto; }
-.topbar h1 { font-size: 22px; letter-spacing: -.02em; }
+.topbar h1 { font-size: 22px; letter-spacing: -.02em; margin-right: auto; }
+.sync-pill { border: 0; border-radius: 99px; padding: 4px 10px; font-size: 12px; font-weight: 600; cursor: pointer; background: var(--good-soft); color: var(--good); margin-right: 4px; white-space: nowrap; }
+.sync-pill[data-state="syncing"], .sync-pill[data-state="pending"] { background: var(--accent-soft); color: var(--accent); }
+.sync-pill[data-state="offline"] { background: var(--surface-2); color: var(--muted); }
+.sync-pill[data-state="error"] { background: var(--bad-soft); color: var(--bad); }
+.status-line { display: flex; align-items: center; gap: 8px; font-size: 14px; margin-bottom: 8px; }
+.status-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex: none; }
+.status-dot.on { background: var(--good); }
+.status-dot.bad { background: var(--bad); }
+.secret-row { display: flex; gap: 8px; }
+.secret-row input { flex: 1; }
+.steps { margin: 6px 0 10px; padding-left: 20px; color: var(--muted); font-size: 13.5px; }
+.steps li { margin: 3px 0; }
 .month-switch { display: flex; align-items: center; justify-content: space-between; gap: 8px; max-width: 640px; margin: 6px auto 0; background: var(--surface); border-radius: 12px; padding: 4px; box-shadow: var(--shadow); }
 .month-switch button { border: 0; background: none; padding: 6px 14px; border-radius: 9px; font-size: 18px; cursor: pointer; }
 .month-switch button:active { background: var(--surface-2); }

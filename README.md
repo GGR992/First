@@ -19,15 +19,16 @@ Every screen has a month switcher at the top, and most have a row of quick stats
 
 ## Data
 
-Right now data lives in the browser (`localStorage`) on each device. Use **Settings → Export / Import** to
-back it up or move it between devices.
+* **Shared mode (recommended):** the app reads and writes the `DB_Transactions` tab of your Google Sheet
+  through a small Apps Script in your own Google account, protected by a secret key.
+  Setup: **[apps-script/SETUP.md](apps-script/SETUP.md)**. Each phone keeps a local copy and a queue of changes,
+  so it is fast, works offline, and catches up later.
+* **Local mode:** without a connection, data lives only in this browser (`localStorage`).
+  Use **Settings → Export / Import** to back it up or move it. CSV import accepts the sheet's
+  `DB_Transactions` download (`Active` = to pay, `Hidden`/`Inactive` = paid).
 
-* **Import from the Google Sheet:** open `DB_Transactions` → *File › Download › CSV*, then go to *Settings → Import*.
-  Statuses map like this: `Active` = to pay, `Hidden`/`Inactive` = paid. The sheet's `Month` column is used as the budget month.
-* **Export CSV** uses the same columns as the sheet, plus `BudgetMonth`, so it can be pasted back into a sheet.
-
-All storage goes through `app/js/store.js`. That file has an adapter with two methods, `load()` and `save()`. To add shared cloud storage
-later (Google Sheets via Apps Script, Supabase, Firebase…), we only need a new adapter. None of the screens need to change.
+Code: `app/js/store.js` (local copy + change queue), `app/js/sync.js` (talks to the script),
+`apps-script/Code.gs` (the script).
 
 ## Run locally
 
@@ -49,6 +50,7 @@ the repo private, Cloudflare Pages or Netlify host private repos for free. Point
 ## Structure
 
 ```
+apps-script/Code.gs, SETUP.md   Google Sheet backend + guide
 app/
   index.html, manifest.webmanifest, sw.js, icons/
   css/styles.css
@@ -57,6 +59,7 @@ app/
   js/stats.js      calculations (pure)
   js/charts.js     tiny SVG charts
   js/csv.js        import/export
+  js/sync.js       Google Sheet API client
   js/ui.js         shared components, edit sheet
   js/views/*.js    one file per screen
 ```
