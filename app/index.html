@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b7d70">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Budget">
+  <meta name="description" content="Shared home budget for two">
+  <title>Home Budget</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-row">
+      <h1 id="pageTitle">Overview</h1>
+      <a href="#/settings" class="icon-btn" aria-label="Settings">
+        <svg viewBox="0 0 24 24" class="ico"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+      </a>
+    </div>
+    <div class="month-switch">
+      <button type="button" data-action="month-prev" aria-label="Previous month">‹</button>
+      <button type="button" id="monthLabel" class="month-label" data-action="month-today" title="Jump to current month"></button>
+      <button type="button" data-action="month-next" aria-label="Next month">›</button>
+    </div>
+  </header>
+
+  <main id="view" class="view" aria-live="polite"></main>
+
+  <nav class="tabbar" aria-label="Main">
+    <a href="#/home" data-tab="home"><svg viewBox="0 0 24 24" class="ico"><path d="M3 10.5L12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg><span>Home</span></a>
+    <a href="#/current" data-tab="current"><svg viewBox="0 0 24 24" class="ico"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/></svg><span>Month</span></a>
+    <a href="#/add" data-tab="add" class="tab-add"><span class="plus" aria-hidden="true"><svg viewBox="0 0 24 24" class="ico"><path d="M12 5v14M5 12h14"/></svg></span><span>Add</span></a>
+    <a href="#/stats" data-tab="stats"><svg viewBox="0 0 24 24" class="ico"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg><span>Stats</span></a>
+    <a href="#/history" data-tab="history"><svg viewBox="0 0 24 24" class="ico"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></svg><span>History</span></a>
+  </nav>
+
+  <dialog id="sheet" class="sheet" aria-label="Edit transaction"></dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <noscript>This app needs JavaScript.</noscript>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
