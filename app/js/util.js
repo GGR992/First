@@ -88,3 +88,50 @@ export function debounce(fn, ms = 200) {
   let t;
   return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
 }
+
+/* ---------- names: "Chiria (cash)" and "Chiria" are the same expense ---------- */
+
+/** Description without any "(…)" notes: "Chiria (cash)" -> "Chiria". */
+export function baseName(desc) {
+  const raw = String(desc || '');
+  const cleaned = raw.replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim();
+  return cleaned || raw.trim();
+}
+export const baseKey = (desc) => normKey(baseName(desc));
+
+/* ---------- spending load colour: green → orange → red ---------- */
+
+/** Hue (0–360) for spent/income ratio. ≤75% green, ~97–100% orange, above 100% → red. */
+export function loadHue(ratio) {
+  const lerp = (a, b, t) => a + (b - a) * Math.min(1, Math.max(0, t));
+  if (ratio <= 0.75) return 145;
+  if (ratio <= 0.97) return lerp(145, 35, (ratio - 0.75) / 0.22);
+  if (ratio <= 1) return 35;
+  return lerp(35, 3, (ratio - 1) / 0.1);
+}
+
+/* ---------- keyword highlight colours ---------- */
+
+export const KW_COLORS = [
+  { key: 'purple', label: 'Purple' },
+  { key: 'green', label: 'Green' },
+  { key: 'orangered', label: 'Orange-red' },
+  { key: 'orangepink', label: 'Orange-pink' },
+  { key: 'blue', label: 'Blue' },
+  { key: 'teal', label: 'Teal' },
+  { key: 'gold', label: 'Gold' },
+  { key: 'red', label: 'Red' },
+  { key: 'grey', label: 'Grey' },
+];
+
+/** First rule whose keyword appears in the description (case ignored) → colour key, or null. */
+export function kwColor(rules, desc) {
+  const d = String(desc || '').toLowerCase();
+  for (const r of rules || []) {
+    if (r.keyword && d.includes(String(r.keyword).toLowerCase())) return r.color;
+  }
+  return null;
+}
+
+export const monthLabelShort = (key) =>
+  monthDate(key).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' });

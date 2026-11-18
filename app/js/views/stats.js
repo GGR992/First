@@ -1,5 +1,5 @@
 // Stats: detailed view (the "trend analyzer" + charts part of the sheet).
-import { money, esc, monthName, monthLabel, addMonths, pct, monthShort } from '../util.js';
+import { money, esc, monthName, monthLabel, addMonths, pct, monthShort, baseKey } from '../util.js';
 import { summarize, trend, categoryTrend, topItems, allTime, personTrend, expensesOf } from '../stats.js';
 import { monthBars, hbars, catColor } from '../charts.js';
 import { statStrip, segmented, emptyState, deltaBadge, txRow } from '../ui.js';
@@ -7,19 +7,28 @@ import { statStrip, segmented, emptyState, deltaBadge, txRow } from '../ui.js';
 let range = 12;
 let category = null;
 let itemsScope = 'all'; // 'all' | 'month'
+let item = null;        // baseKey of the expense the category graph is narrowed to
 
 export const actions = {
   range(el, ctx) { range = Number(el.dataset.value); ctx.render(); },
   'pick-cat'(el, ctx) {
     category = el.dataset.category;
+    item = null;
     ctx.render();
     requestAnimationFrame(() => document.getElementById('drill')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   },
   scope(el, ctx) { itemsScope = el.dataset.value; ctx.render(); },
+  // Tap an expense in "Top expenses" to see only its month-by-month evolution; tap again to go back.
+  'pick-item'(el, ctx) {
+    item = item === el.dataset.key ? null : el.dataset.key;
+    ctx.render();
+    if (item) requestAnimationFrame(() => document.getElementById('drill')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  },
+  'clear-item'(el, ctx) { item = null; ctx.render(); },
 };
 
 export function mount(root, ctx) {
-  root.querySelector('#cat-select')?.addEventListener('change', (e) => { category = e.target.value; ctx.render(); });
+  root.querySelector('#cat-select')?.addEventListener('change', (e) => { category = e.target.value; item = null; ctx.render(); });
 }
 
 export function render({ store, state }) {
@@ -50,12 +59,16 @@ export function render({ store, state }) {
   // Drill-down
   const usedCats = [...new Set(expensesOf(store.tx).map((x) => x.category))].sort();
   if (!category || !usedCats.includes(category)) category = cur.byCategory[0]?.category || usedCats[0];
-  const ct = categoryTrend(store.tx, category, m, range);
   const catTx = store.tx.filter((x) => x.type === 'expense' && x.category === category);
-  const catAll = catTx.reduce((a, x) => a + x.amount, 0);
-  const catMonths = new Set(catTx.map((x) => x.month)).size;
+  if (item && !catTx.some((x) => baseKey(x.description) === item)) item = null;
+  const itemTx = item ? catTx.filter((x) => baseKey(x.description) === item) : catTx;
+  const itemName = item ? topItems(catTx).find((i) => i.key === item)?.description : '';
+  const ct = categoryTrend(store.tx, category, m, range, item);
+  const catAll = itemTx.reduce((a, x) => a + x.amount, 0);
+  const catMonths = new Set(itemTx.map((x) => x.month)).size;
   const scoped = itemsScope === 'month' ? catTx.filter((x) => x.month === m) : catTx;
   const items = topItems(scoped).slice(0, 12);
+  const monthList = itemsScope === 'month' ? (item ? scoped.filter((x) => baseKey(x.description) === item) : scoped) : [];
 
   // Person trend
   const pt = personTrend(store.tx, s.people, m, Math.min(range, 6));
@@ -85,6 +98,7 @@ export function render({ store, state }) {
       <div class="card-head"><h2>Category detail</h2>
         <select id="cat-select" aria-label="Category">${usedCats.map((c) => `<option ${c === category ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
       </div>
+      ${item ? `<button type="button" class="filter-chip" data-action="clear-item" aria-label="Show the whole category again">${esc(itemName)} only <span aria-hidden="true">✕</span></button>` : ''}
       ${statStrip([
         { label: 'Total ever', value: money(catAll, { decimals: 0 }) },
         { label: 'Avg / month', value: money(catMonths ? catAll / catMonths : 0, { decimals: 0 }) },
@@ -96,9 +110,10 @@ export function render({ store, state }) {
       </div>
       ${items.length ? `<table class="table">
         <thead><tr><th>Item</th><th class="num">Times</th><th class="num">Last</th><th class="num">Total</th></tr></thead>
-        <tbody>${items.map((i) => `<tr><td>${esc(i.description)}</td><td class="num">${i.count}</td><td class="num">${money(i.last.amount, { decimals: 0 })}</td><td class="num"><b>${money(i.total, { decimals: 0 })}</b></td></tr>`).join('')}</tbody>
+        <tbody>${items.map((i) => `<tr data-action="pick-item" data-key="${esc(i.key)}" class="${i.key === item ? 'sel' : ''}" tabindex="0" aria-pressed="${i.key === item}"><td>${esc(i.description)}</td><td class="num">${i.count}</td><td class="num">${money(i.last.amount, { decimals: 0 })}</td><td class="num"><b>${money(i.total, { decimals: 0 })}</b></td></tr>`).join('')}</tbody>
       </table>` : '<p class="muted">Nothing here.</p>'}
-      ${itemsScope === 'month' && scoped.length ? `<ul class="tx-list">${scoped.map((x) => txRow(store, x)).join('')}</ul>` : ''}
+      ${items.length ? '<p class="hint left">Tap an expense to see only its month-by-month evolution above. Tap it again to go back. Notes like “(cash)” are ignored, so “Chiria (cash)” and “Chiria” count as one.</p>' : ''}
+      ${monthList.length ? `<ul class="tx-list">${monthList.map((x) => txRow(store, x)).join('')}</ul>` : ''}
     </div>
 
     <div class="card">

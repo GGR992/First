@@ -1,5 +1,5 @@
 // Shared UI building blocks.
-import { esc, money, fmtDate, parseAmount, defaultDateFor, monthLabel, addMonths } from './util.js';
+import { esc, money, fmtDate, parseAmount, defaultDateFor, monthLabel, addMonths, kwColor } from './util.js';
 import { catColor } from './charts.js';
 
 /* ---------- toast ---------- */
@@ -26,16 +26,23 @@ export function payerChip(store, t, { swap = true } = {}) {
     ${esc(t.payer || '—')}${canSwap ? '<span class="swap-ico" aria-hidden="true">⇄</span>' : ''}</button>`;
 }
 
+/** Attributes that colour an expense row according to the keyword rules in Settings. */
+export function kwAttrs(store, description) {
+  const k = kwColor(store.settings.keywordRules, description);
+  return k ? { cls: ' kw', attr: ` style="--kw:var(--kc-${esc(k)})"` } : { cls: '', attr: '' };
+}
+
 export function txRow(store, t, { check = true, swap = true, showMonth = false } = {}) {
   const color = catColor(t.category, store.categoriesFor(t.type));
   const isIncome = t.type === 'income';
+  const kw = isIncome ? { cls: '', attr: '' } : kwAttrs(store, t.description);
   const left = isIncome
     ? `<span class="check income" aria-hidden="true">+</span>`
     : check
       ? `<button type="button" class="check${t.paid ? ' on' : ''}" data-action="toggle-paid" data-id="${t.id}" aria-label="${t.paid ? 'Mark as not paid' : 'Mark as paid'}" aria-pressed="${t.paid}">
            <svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button>`
       : '';
-  return `<li class="tx${t.paid && !isIncome ? ' is-paid' : ''}${isIncome ? ' is-income' : ''}">
+  return `<li class="tx${t.paid && !isIncome ? ' is-paid' : ''}${isIncome ? ' is-income' : ''}${kw.cls}"${kw.attr}>
     ${left}
     <button type="button" class="tx-main" data-action="edit" data-id="${t.id}">
       <span class="tx-title">${esc(t.description || '(no description)')}</span>

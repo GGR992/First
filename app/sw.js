@@ -1,5 +1,5 @@
 // Offline support: network-first (so updates show up right away), cache as fallback.
-const CACHE = 'budget-v2';
+const CACHE = 'budget-v3';
 const ASSETS = [
   './', 'index.html', 'css/styles.css', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png',
   'js/app.js', 'js/util.js', 'js/store.js', 'js/stats.js', 'js/charts.js', 'js/ui.js', 'js/csv.js', 'js/sync.js',

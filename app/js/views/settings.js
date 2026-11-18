@@ -1,5 +1,6 @@
 // Settings: shared Google Sheet, people, categories, currency, import/export.
-import { esc, todayISO } from '../util.js';
+import { esc, todayISO, KW_COLORS } from '../util.js';
+import { DEFAULT_SETTINGS } from '../store.js';
 import { parseCSV, rowsToTransactions, toCSV, download } from '../csv.js';
 import { normalizeTx } from '../store.js';
 import { isLikelyScriptUrl } from '../sync.js';
@@ -23,6 +24,14 @@ async function copyText(text) {
 }
 
 export const actions = {
+  'remove-rule'(el, ctx) {
+    const rules = ctx.store.settings.keywordRules.filter((_, i) => i !== Number(el.dataset.i));
+    ctx.store.saveSettings({ keywordRules: rules });
+  },
+  'reset-rules'(el, ctx) {
+    if (!confirm('Restore the default highlight colours? Your own rules on this device will be removed.')) return;
+    ctx.store.saveSettings({ keywordRules: structuredClone(DEFAULT_SETTINGS.keywordRules) });
+  },
   'remove-cat'(el, ctx) {
     const key = el.dataset.kind;
     ctx.store.saveSettings({ [key]: ctx.store.settings[key].filter((c) => c !== el.dataset.cat) });
@@ -107,6 +116,29 @@ function syncCard(store) {
   </div>`;
 }
 
+const colorOptions = (sel) => KW_COLORS.map((c) => `<option value="${c.key}" ${c.key === sel ? 'selected' : ''}>${c.label}</option>`).join('');
+
+function rulesCard(store) {
+  const rules = store.settings.keywordRules || [];
+  return `<div class="card">
+    <div class="card-head"><h2>Highlight colours</h2></div>
+    <p class="muted">An expense whose name contains a keyword is shown in that colour everywhere (lists, month, history).
+      Upper/lower case is ignored. If several keywords match, the first one in the list wins.</p>
+    <ul class="rules">${rules.map((r, i) => `<li style="--kw:var(--kc-${esc(r.color)})">
+      <span class="rule-sample">Aa</span>
+      <b class="rule-word">${esc(r.keyword)}</b>
+      <select data-rule-color="${i}" aria-label="Colour for ${esc(r.keyword)}">${colorOptions(r.color)}</select>
+      <button type="button" class="icon-btn sm" data-action="remove-rule" data-i="${i}" aria-label="Remove ${esc(r.keyword)}">✕</button></li>`).join('')}</ul>
+    <form id="rule-form" class="inline-form">
+      <input name="keyword" placeholder="Keyword, e.g. Joint" required aria-label="Keyword">
+      <select name="color" aria-label="Colour">${colorOptions('blue')}</select>
+      <button class="btn">Add rule</button>
+    </form>
+    <p class="hint left">Rules are saved on this device. Set the same ones on the other phone if you change them.</p>
+    <button class="btn ghost block" data-action="reset-rules">Restore defaults</button>
+  </div>`;
+}
+
 export function render({ store }) {
   const s = store.settings;
   const catBlock = (key, title) => `
@@ -133,6 +165,8 @@ export function render({ store }) {
       </form>
     </div>
 
+    ${rulesCard(store)}
+
     ${catBlock('expenseCategories', 'Expense categories')}
     ${catBlock('incomeCategories', 'Income categories')}
 
@@ -155,7 +189,7 @@ export function render({ store }) {
         : '<button class="btn danger ghost" data-action="clear-all">Delete all data on this device</button>'}
     </div>
 
-    <p class="hint">Budget app · v2 · works offline · <a href="https://github.com/GGR992/First" target="_blank" rel="noopener">source</a></p>
+    <p class="hint">Budget app · v3 · works offline · <a href="https://github.com/GGR992/First" target="_blank" rel="noopener">source</a></p>
   </section>`;
 }
 
@@ -198,6 +232,20 @@ export function mount(root, ctx) {
       }
     }
     ctx.toast('Saved');
+  });
+
+  root.querySelectorAll('select[data-rule-color]').forEach((sel) => sel.addEventListener('change', () => {
+    const rules = store.settings.keywordRules.map((r, i) => (i === Number(sel.dataset.ruleColor) ? { ...r, color: sel.value } : r));
+    store.saveSettings({ keywordRules: rules });
+  }));
+  root.querySelector('#rule-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = e.target.elements;
+    const keyword = f.keyword.value.trim();
+    if (!keyword) return;
+    const rules = store.settings.keywordRules || [];
+    if (rules.some((r) => r.keyword.toLowerCase() === keyword.toLowerCase())) { ctx.toast('That keyword already exists'); return; }
+    await store.saveSettings({ keywordRules: [...rules, { keyword, color: f.color.value }] });
   });
 
   root.querySelectorAll('form[data-add-cat]').forEach((form) => form.addEventListener('submit', async (e) => {
