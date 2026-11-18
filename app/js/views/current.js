@@ -11,15 +11,8 @@ export const actions = {
     const { store, state } = ctx;
     const ids = summarize(store.tx, state.month, store.settings.people).unpaid.map((t) => t.id);
     if (!ids.length || !confirm(`Mark all ${ids.length} as paid?`)) return;
-    for (const id of ids) {
-      const t = store.get(id);
-      t.paid = true;
-      t.updatedAt = Date.now();
-    }
-    await store.persist();
-    ctx.toast(`${ids.length} marked as paid`, {
-      undo: async () => { ids.forEach((id) => { store.get(id).paid = false; }); await store.persist(); },
-    });
+    await store.updateMany(ids, { paid: true });
+    ctx.toast(`${ids.length} marked as paid`, { undo: () => store.updateMany(ids, { paid: false }) });
   },
 };
 
