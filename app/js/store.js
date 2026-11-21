@@ -5,7 +5,7 @@
 //   ({op:'add'|'update', tx} or {op:'remove', id}). The queue is sent to the
 //   sheet in the background and survives reloads, so nothing is lost offline.
 
-import { uid, normKey, round2 } from './util.js';
+import { uid, normKey, baseKey, round2 } from './util.js';
 import { SheetsRemote } from './sync.js';
 
 const KEY = 'budget.v1';
@@ -21,6 +21,14 @@ export const DEFAULT_SETTINGS = {
     'Debt Gabi', 'Debt Oana', 'Other',
   ],
   incomeCategories: ['Paycheck', 'Bonuri', 'Other income'],
+  // Expenses whose name contains a keyword are shown in that colour (case ignored, first match wins).
+  keywordRules: [
+    { keyword: 'Joint', color: 'purple' },
+    { keyword: 'Cash', color: 'green' },
+    { keyword: 'Emergencyfamiglia', color: 'orangered' },
+    { keyword: 'Buget Fun', color: 'orangepink' },
+    { keyword: 'Budget Fun', color: 'orangepink' },
+  ],
 };
 
 const readJSON = (k) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch { return null; } };
@@ -267,14 +275,18 @@ export class Store {
     return type === 'income' ? this.settings.incomeCategories : this.settings.expenseCategories;
   }
 
+  /** Latest transaction with this name: exact match first, otherwise the same name ignoring "(…)" notes. */
   lastByDescription(desc) {
-    const k = normKey(desc);
-    if (!k) return null;
-    let best = null;
+    const exact = normKey(desc);
+    const base = baseKey(desc);
+    if (!exact) return null;
+    const newer = (t, best) => !best || t.month > best.month || (t.month === best.month && t.createdAt > best.createdAt);
+    let bestExact = null, bestBase = null;
     for (const t of this.tx) {
-      if (normKey(t.description) === k && (!best || t.month > best.month || (t.month === best.month && t.createdAt > best.createdAt))) best = t;
+      if (normKey(t.description) === exact && newer(t, bestExact)) bestExact = t;
+      else if (baseKey(t.description) === base && newer(t, bestBase)) bestBase = t;
     }
-    return best;
+    return bestExact || bestBase;
   }
 
   descriptions() {

@@ -1,5 +1,5 @@
 import { Store } from './store.js';
-import { monthKey, addMonths, monthLabel, setCurrency } from './util.js';
+import { monthKey, addMonths, monthLabelShort, setCurrency, esc } from './util.js';
 import { openTxSheet, toast } from './ui.js';
 import * as home from './views/home.js';
 import * as current from './views/current.js';
@@ -11,7 +11,8 @@ import * as settings from './views/settings.js';
 const views = { home, current, add, stats, history, settings };
 const TITLES = { home: 'Overview', current: 'This month', add: 'Add', stats: 'Stats', history: 'History', settings: 'Settings' };
 
-const state = { month: monthKey(), tab: 'home', query: '' };
+const state = { month: monthKey(), tab: 'home', query: '', person: 'all' };
+try { state.person = localStorage.getItem('budget.person') || 'all'; } catch { /* ignore */ }
 try { const m = sessionStorage.getItem('budget.month'); if (/^\d{4}-\d{2}$/.test(m)) state.month = m; } catch { /* ignore */ }
 
 const store = new Store();
@@ -55,6 +56,11 @@ const shared = {
   'month-next'() { ctx.setMonth(addMonths(state.month, 1)); },
   'month-today'() { ctx.setMonth(monthKey()); },
   'pick-month'(el) { ctx.setMonth(el.dataset.month); },
+  'set-person'(el) {
+    state.person = el.dataset.value;
+    try { localStorage.setItem('budget.person', state.person); } catch { /* ignore */ }
+    render();
+  },
   async 'sync-now'() {
     if (!store.connected) { ctx.go('settings'); return; }
     try { await store.pull(); toast('Up to date with the Google Sheet'); } catch (e) { toast(`Sync failed: ${e.message}`); }
@@ -105,13 +111,20 @@ function route() {
 function render() {
   setCurrency(store.settings.currency);
   const label = document.getElementById('monthLabel');
-  label.textContent = monthLabel(state.month);
+  label.textContent = monthLabelShort(state.month);
+  label.setAttribute('aria-label', `${new Date(state.month + '-01T12:00').toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}${state.month === monthKey() ? '' : ', tap to return to today'}`);
+  const people = store.settings.people;
+  if (state.person !== 'all' && !people.includes(state.person)) state.person = 'all';
+  const seg = document.getElementById('personSeg');
+  seg.hidden = !(state.tab === 'home' && people.length > 1);
+  seg.innerHTML = ['all', ...people].map((v) => `<button type="button" role="tab" class="seg-btn${v === state.person ? ' on' : ''}" aria-selected="${v === state.person}" data-action="set-person" data-value="${esc(v)}">${v === 'all' ? 'All' : esc(v)}</button>`).join('');
   label.classList.toggle('is-now', state.month === monthKey());
   document.getElementById('pageTitle').textContent = TITLES[state.tab];
   document.querySelectorAll('.tabbar a').forEach((a) => a.classList.toggle('on', a.dataset.tab === state.tab));
   document.body.dataset.tab = state.tab;
   const v = views[state.tab];
   const y = window.scrollY;
+  document.documentElement.style.setProperty('--hdr', document.querySelector('.topbar').offsetHeight + 'px');
   root.innerHTML = v.render(ctx);
   v.mount?.(root, ctx);
   window.scrollTo(0, y);

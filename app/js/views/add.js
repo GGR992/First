@@ -1,7 +1,7 @@
 // Add: expense / income / copy-from-last-month (top-left + left parts of the sheet).
-import { money, esc, monthName, addMonths, parseAmount, defaultDateFor, normKey, sum } from '../util.js';
+import { money, esc, monthName, addMonths, parseAmount, defaultDateFor, baseKey, sum } from '../util.js';
 import { summarize, topItems, incomesOf, inMonth } from '../stats.js';
-import { txForm, bindTxForm, readTxForm, statStrip, segmented, emptyState, personIndex, deltaBadge } from '../ui.js';
+import { txForm, bindTxForm, readTxForm, statStrip, segmented, emptyState, personIndex, deltaBadge, kwAttrs } from '../ui.js';
 
 let mode = 'expense';
 // Per-row choices in "Last month" mode, keyed by source tx id. Reset when month changes.
@@ -120,7 +120,7 @@ function renderExpense({ store, state }) {
       { label: 'Left', value: money(cur.remaining), tone: cur.remaining < 0 ? 'bad' : 'good' },
     ])}
     ${quick.length ? `<div class="chips-scroll" aria-label="Quick fill">${quick.map((q) =>
-      `<button type="button" class="chip" data-action="quick-fill" data-desc="${esc(q.description)}">${esc(q.description)}</button>`).join('')}</div>` : ''}
+      `<button type="button" class="chip" data-action="quick-fill" data-desc="${esc(q.last.description)}">${esc(q.last.description)}</button>`).join('')}</div>` : ''}
     <form id="add-form" class="card form" autocomplete="off">
       ${txForm(store, { type: 'expense', month: state.month }, { month: state.month, idPrefix: 'add' })}
       <p class="form-error" role="alert"></p>
@@ -173,7 +173,7 @@ function renderLast({ store, state }) {
   const m = state.month;
   const prevKey = addMonths(m, -1);
   const prev = summarize(store.tx, prevKey, s.people);
-  const curDescs = new Set(inMonth(store.tx, m).filter((t) => t.type === 'expense').map((t) => normKey(t.description)));
+  const curDescs = new Set(inMonth(store.tx, m).filter((t) => t.type === 'expense').map((t) => baseKey(t.description)));
 
   if (picksMonth !== m) {
     picks = new Map();
@@ -181,7 +181,7 @@ function renderLast({ store, state }) {
   }
   for (const t of prev.exp) {
     if (!picks.has(t.id)) {
-      const already = curDescs.has(normKey(t.description));
+      const already = curDescs.has(baseKey(t.description));
       picks.set(t.id, { on: !already, already, amount: t.amount, payer: t.payer });
     }
   }
@@ -207,7 +207,8 @@ function renderLast({ store, state }) {
     </div>
     <ul class="card flush pick-list">${rows.map((t) => {
       const p = picks.get(t.id);
-      return `<li class="pick${p.on ? ' on' : ''}${p.already ? ' already' : ''}">
+      const kw = kwAttrs(store, t.description);
+      return `<li class="pick${p.on ? ' on' : ''}${p.already ? ' already' : ''}${kw.cls}"${kw.attr}>
         <button type="button" class="check${p.on ? ' on' : ''}" data-action="pick-toggle" data-id="${t.id}" aria-pressed="${p.on}" aria-label="Select ${esc(t.description)}">
           <svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button>
         <div class="pick-main">

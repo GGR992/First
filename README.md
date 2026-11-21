@@ -15,7 +15,14 @@ and can be installed on a phone ("Add to Home Screen"). It also works offline.
 | **History** | `DB_Transactions` | Every transaction, with search and filters (type, status, month, category, payer) and month totals. |
 | **Settings** (⚙) | `DB_Setup` | People, currency and categories. Import and export as CSV or JSON. |
 
-Every screen has a month switcher at the top, and most have a row of quick stats.
+Every screen has a compact month switcher at the top right, and most have a row of quick stats.
+On **Home**, the selector at the top left (All / Gabi / Oana) narrows the big "left this month" number, the tiles,
+the category donut and "Still to pay" to one person. "Spent vs income" always shows both people and turns
+green → orange → red as someone's expenses approach and pass their income.
+
+Names are compared without notes in brackets, so "Chiria (cash)" and "Chiria" count as one expense in Stats and
+in the quick-add / copy-from-last-month features. Expenses whose name contains a keyword (Joint, Cash, …) are
+coloured everywhere; edit the keywords in **Settings → Highlight colours**.
 
 ## Data
 

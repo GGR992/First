@@ -17,8 +17,8 @@ Open the spreadsheet → **File → Make a copy** → name it e.g. `NewBudget_sy
 ## Step 1 – Get two things ready
 
 1. **The spreadsheet ID.** In the spreadsheet's address bar, the URL looks like
-   `https://docs.google.com/spreadsheets/d/`**`11aBNk…d-0Q`**`/edit…`
-   Copy the long part between `/d/` and `/edit`.
+   `https://docs.google.com/spreadsheets/d/`**`<THE ID>`**`/edit…`
+   Copy **the whole** part between `/d/` and `/edit`. It is about 44 characters long, with no `…` and no `/`.
 2. **A secret key.** Open the app → **⚙ Settings → Shared Google Sheet → Generate**.
    It fills in a random secret **and copies it**. Paste it into a note for a moment.
    Keep the app open on that screen.
@@ -30,10 +30,11 @@ Open the spreadsheet → **File → Make a copy** → name it e.g. `NewBudget_sy
 3. In the editor, select everything in `Code.gs` and delete it.
 4. Open [`Code.gs` from this repo](./Code.gs), click the **Copy raw file** button (two squares icon,
    top right of the code), and paste it into the editor.
-5. Near the top, fill in your two values between the quotes:
+5. Near the top, fill in your two values between the quotes. Do this **only here in the Apps Script editor**
+   (it's private to your Google account), never in the GitHub file:
    ```js
-   const SHEET_ID = '11aBNk…d-0Q';           // from Step 1.1
-   const SECRET = 'the-secret-from-the-app'; // from Step 1.2
+   const SHEET_ID = 'your-full-spreadsheet-id';  // from Step 1.1 – the whole ID
+   const SECRET = 'the-secret-from-the-app';     // from Step 1.2
    ```
 6. Click the **💾 Save** icon (or Ctrl+S).
 
@@ -82,6 +83,7 @@ Open the spreadsheet → **File → Make a copy** → name it e.g. `NewBudget_sy
 |---|---|
 | **Wrong secret key** | The `SECRET` in the script and in the app differ. Fix one, then (if you changed the script) redeploy – see below. |
 | **Could not reach the Google Sheet script** | Check the URL ends with `/exec` and that **Who has access** is **Anyone**. |
+| **Illegal spreadsheet id or key** | `SHEET_ID` is incomplete or wrong. Paste the full ID, save, and redeploy (see below). |
 | **Tab "DB_Transactions" not found** | The tab was renamed; change `const TAB = …` in the script and redeploy. |
 
 **Changing the script later** (new version from this repo, or new secret):

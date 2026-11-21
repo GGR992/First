@@ -1,5 +1,5 @@
 // Pure calculations — no DOM here.
-import { addMonths, sum, normKey } from './util.js';
+import { addMonths, sum, baseKey, baseName } from './util.js';
 
 export const inMonth = (txs, m) => txs.filter((t) => t.month === m);
 export const expensesOf = (txs) => txs.filter((t) => t.type === 'expense');
@@ -62,26 +62,35 @@ export function trend(txs, endMonth, n) {
   return out;
 }
 
-export function categoryTrend(txs, category, endMonth, n) {
+/** Monthly totals for a category, optionally narrowed to one expense (itemKey = baseKey of its name). */
+export function categoryTrend(txs, category, endMonth, n, itemKey = null) {
   const out = [];
   for (let i = n - 1; i >= 0; i--) {
     const m = addMonths(endMonth, -i);
-    out.push({ month: m, expenses: sum(txs.filter((t) => t.month === m && t.type === 'expense' && t.category === category)) });
+    out.push({
+      month: m,
+      expenses: sum(txs.filter((t) => t.month === m && t.type === 'expense' && t.category === category
+        && (!itemKey || baseKey(t.description) === itemKey))),
+    });
   }
   return out;
 }
 
-/** Groups by description: total, count, average, last amount. */
+/**
+ * Groups by expense name, ignoring "(…)" notes ("Chiria (cash)" + "Chiria" → one item).
+ * Returns key, display name (without notes), total, count and the most recent transaction.
+ */
 export function topItems(txs) {
   const g = new Map();
   for (const t of txs) {
-    const k = normKey(t.description);
-    const e = g.get(k) || { description: t.description, total: 0, count: 0, last: null };
+    const k = baseKey(t.description);
+    const e = g.get(k) || { key: k, description: '', total: 0, count: 0, last: null };
     e.total += t.amount;
     e.count += 1;
     if (!e.last || t.month >= e.last.month) e.last = t;
     g.set(k, e);
   }
+  for (const e of g.values()) e.description = baseName(e.last.description);
   return [...g.values()].sort((a, b) => b.total - a.total);
 }
 
