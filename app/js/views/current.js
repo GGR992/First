@@ -1,6 +1,6 @@
 // Current month: the list where you swap payer and mark as paid (bottom-right part of the sheet).
 import { money, esc, monthName, addMonths } from '../util.js';
-import { summarize, settlement } from '../stats.js';
+import { summarize } from '../stats.js';
 import { statStrip, txRow, segmented, emptyState } from '../ui.js';
 
 let filter = 'todo';
@@ -9,7 +9,7 @@ export const actions = {
   filter(el, ctx) { filter = el.dataset.value; ctx.render(); },
   async 'pay-all'(el, ctx) {
     const { store, state } = ctx;
-    const ids = summarize(store.tx, state.month, store.settings.people).unpaid.map((t) => t.id);
+    const ids = summarize(store.txFor(state.person), state.month, store.settings.people).unpaid.map((t) => t.id);
     if (!ids.length || !confirm(`Mark all ${ids.length} as paid?`)) return;
     await store.updateMany(ids, { paid: true });
     ctx.toast(`${ids.length} marked as paid`, { undo: () => store.updateMany(ids, { paid: false }) });
@@ -18,8 +18,9 @@ export const actions = {
 
 export function render({ store, state }) {
   const s = store.settings;
-  const cur = summarize(store.tx, state.month, s.people);
-  const settle = settlement(cur);
+  const n = s.people.length;
+  const who = n > 1 && s.people.includes(state.person) ? state.person : 'all';
+  const cur = summarize(store.txFor(who), state.month, s.people);
   const sortFn = (a, b) => a.category.localeCompare(b.category) || b.amount - a.amount;
   const lists = {
     todo: cur.unpaid.slice().sort(sortFn),
@@ -28,10 +29,13 @@ export function render({ store, state }) {
   };
   const list = lists[filter];
 
-  const perPerson = s.people.map((p) => {
-    const d = cur.byPerson[p];
-    return { label: p, value: money(d.spent), sub: d.unpaid ? `<span class="warn-text">${money(d.unpaid)} to pay</span>` : 'all paid' };
-  });
+  // Per-person tiles only when looking at everyone and there is more than one person.
+  const perPerson = who === 'all' && n > 1
+    ? s.people.map((p) => {
+        const d = cur.byPerson[p];
+        return { label: p, value: money(d.spent), sub: d.unpaid ? `<span class="warn-text">${money(d.unpaid)} to pay</span>` : 'all paid' };
+      })
+    : [];
 
   const empty = filter === 'todo' && cur.exp.length
     ? emptyState('All paid ✅', `Everything for ${esc(monthName(state.month))} is paid. Paid items live in History.`)
@@ -44,8 +48,7 @@ export function render({ store, state }) {
       { label: 'Paid', value: money(cur.paidAmount), tone: 'good' },
       { label: 'To pay', value: money(cur.unpaidAmount), tone: cur.unpaid.length ? 'warn' : '', sub: `${cur.unpaid.length} left` },
     ])}
-    ${statStrip(perPerson)}
-    ${settle && !settle.even ? `<div class="callout slim"><b>${esc(settle.to)}</b> paid ${money(settle.amount)} more than their share.</div>` : ''}
+    ${perPerson.length ? statStrip(perPerson) : ''}
 
     <div class="toolbar">
       ${segmented('filter', [
@@ -57,7 +60,7 @@ export function render({ store, state }) {
 
     ${list.length ? `<ul class="tx-list card flush">${list.map((t) => txRow(store, t)).join('')}</ul>` : empty}
 
-    <p class="hint">Tap ✓ to mark paid · tap the name to swap who pays · tap a row to edit.</p>
+    <p class="hint">Tap ✓ to mark paid${n > 1 ? ' · tap the name to swap who pays' : ''} · tap a row to edit.</p>
     ${filter === 'todo' && list.length > 1 ? '<button class="btn ghost block" data-action="pay-all">Mark all as paid</button>' : ''}
   </section>`;
 }

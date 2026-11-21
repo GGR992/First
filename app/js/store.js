@@ -11,17 +11,36 @@ import { SheetsRemote } from './sync.js';
 const KEY = 'budget.v1';
 const SYNC_KEY = 'budget.sync';
 const PENDING_KEY = 'budget.pending';
+const SETTINGS_PENDING_KEY = 'budget.settingsPending';
+
+export const MAX_PEOPLE = 6;
 
 export const DEFAULT_SETTINGS = {
+  configured: false,           // false until the welcome setup (names, currency) is done
+  people: ['', ''],
+  currency: '',
+  expenseCategories: [
+    'Housing', 'Utilities', 'Food', 'Transportation', 'Health', 'Fun',
+    'Personal', 'Savings', 'Gifts', 'Pets', 'Debt', 'Other',
+  ],
+  incomeCategories: ['Salary', 'Bonus', 'Other income'],
+  // Expenses whose name contains a keyword are shown in that colour (case ignored, first match wins).
+  keywordRules: [
+    { keyword: 'Joint', color: 'purple' },
+    { keyword: 'Cash', color: 'green' },
+  ],
+  updatedAt: 0,                // time of the last settings change (used to sync settings between phones)
+};
+
+// Settings of the first users (before v3.5): used for data saved by earlier versions.
+const LEGACY_SETTINGS = {
   people: ['Gabi', 'Oana'],
-  currency: 'lei',
   expenseCategories: [
     'Utilities', 'Food', 'Pets', 'Transportation', 'Health/medical', 'Fun',
     'Personal', 'Savings', 'Gifts', 'Home', 'Household', 'Rata Masina',
     'Debt Gabi', 'Debt Oana', 'Other',
   ],
   incomeCategories: ['Paycheck', 'Bonuri', 'Other income'],
-  // Expenses whose name contains a keyword are shown in that colour (case ignored, first match wins).
   keywordRules: [
     { keyword: 'Joint', color: 'purple' },
     { keyword: 'Cash', color: 'green' },
@@ -62,15 +81,21 @@ export class Store {
     this.sync = { state: 'local', error: '', lastPull: 0 };
     this.flushPromise = null;
     this.pullPromise = null;
+    this.settingsPending = false;   // local settings changes not yet sent to the sheet
+    this.settingsSynced = true;     // false when the sheet's script is too old to store settings
   }
 
   async init() {
     const data = readJSON(KEY);
     if (data) {
       this.tx = (data.transactions || []).map(normalizeTx);
-      this.settings = { ...structuredClone(DEFAULT_SETTINGS), ...(data.settings || {}) };
+      const saved = data.settings || {};
+      // Data saved by an earlier version: keep its names, categories and colours.
+      const legacy = saved.configured === undefined ? { ...structuredClone(LEGACY_SETTINGS), configured: true } : {};
+      this.settings = { ...structuredClone(DEFAULT_SETTINGS), ...legacy, ...saved };
       this.sync.lastPull = data.lastPull || 0;
     }
+    this.settingsPending = Boolean(readJSON(SETTINGS_PENDING_KEY));
     this.pending = readJSON(PENDING_KEY) || [];
     const cfg = readJSON(SYNC_KEY);
     if (cfg?.url && cfg?.key) {
@@ -81,7 +106,7 @@ export class Store {
 
   /* ---------- events ---------- */
   subscribe(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
-  emit() { for (const fn of this.listeners) fn(); }
+  emit(info) { for (const fn of this.listeners) fn(info); }
   onSync(fn) { this.syncListeners.add(fn); return () => this.syncListeners.delete(fn); }
   setSync(state, error = '') {
     this.sync = { ...this.sync, state, error };
@@ -149,8 +174,9 @@ export class Store {
         this.learnCategories(list);
         this.sync.lastPull = Date.now();
         this.saveLocal();
+        await this.syncSettings();
         this.setSync(this.pending.length ? 'pending' : 'synced');
-        this.emit();
+        this.emit({ background: true });
       } catch (e) {
         this.setSync(e.code === 'offline' ? 'offline' : 'error', e.message);
         throw e;
@@ -170,16 +196,48 @@ export class Store {
     this.tx = data.transactions.map((t) => normalizeTx({ ...t, createdAt: t.row }));
     this.learnCategories(this.tx);
     this.sync.lastPull = Date.now();
+    this.settings.configured = this.settings.configured || data.transactions.length > 0;
     this.saveLocal();
+    await this.syncSettings({ adoptRemote: true });
     this.setSync('synced');
     this.emit();
     return this.tx.length;
+  }
+
+  /**
+   * Shared settings (names, currency, categories, colours) live in the sheet's App_Settings tab.
+   * The newest change wins. Older scripts without this feature are tolerated: settings then stay on each phone.
+   */
+  async syncSettings({ adoptRemote = false } = {}) {
+    if (!this.remote) return;
+    try {
+      const r = await this.remote.getSettings();
+      this.settingsSynced = true;
+      const remote = r.settings;
+      const mine = this.settings.updatedAt || 0;
+      if (remote && (adoptRemote ? !this.settingsPending : (r.updatedAt > mine && !this.settingsPending))) {
+        // The sheet has newer (or, when joining, the shared) settings: use them.
+        this.settings = { ...structuredClone(DEFAULT_SETTINGS), ...remote, configured: true, updatedAt: r.updatedAt };
+      } else if (this.settings.configured && (!remote || this.settingsPending || mine > r.updatedAt)) {
+        // This phone has the newer settings (or the sheet has none yet): send them.
+        const at = this.settings.updatedAt || Date.now();
+        this.settings.updatedAt = at;
+        await this.remote.setSettings(this.settings, at);
+        this.settingsPending = false;
+        writeJSON(SETTINGS_PENDING_KEY, null);
+      }
+      this.saveLocal();
+    } catch (e) {
+      if (e.code === 'unknown_action') this.settingsSynced = false; // old script: keep settings on this device
+      else if (this.settings.configured) { this.settingsPending = true; writeJSON(SETTINGS_PENDING_KEY, true); }
+    }
   }
 
   disconnect() {
     this.remote = null;
     this.pending = [];
     writeJSON(SYNC_KEY, null);
+    writeJSON(SETTINGS_PENDING_KEY, null);
     this.saveLocal();
     this.setSync('local');
     this.emit();
@@ -190,9 +248,25 @@ export class Store {
   /* ---------- data operations ---------- */
   get(id) { return this.tx.find((t) => t.id === id); }
 
+  /** With a single person every expense and income belongs to them. */
+  fixPayer(t) {
+    const p = this.settings.people;
+    return p.length === 1 && t.payer !== p[0] ? { ...t, payer: p[0] } : t;
+  }
+
+  /**
+   * Transactions as seen by one person (or everyone): person = 'all' | a name.
+   * With a single person, every transaction is treated as theirs, whatever the payer column says.
+   */
+  txFor(person = 'all') {
+    const p = this.settings.people;
+    if (p.length === 1) return this.tx.map((t) => this.fixPayer(t));
+    return person === 'all' ? this.tx : this.tx.filter((t) => t.payer === person);
+  }
+
   async add(items) {
     const now = Date.now();
-    const list = [].concat(items).map((t) => normalizeTx({ ...t, createdAt: now, updatedAt: now }));
+    const list = [].concat(items).map((t) => normalizeTx(this.fixPayer({ ...t, createdAt: now, updatedAt: now })));
     this.tx.push(...list);
     this.learnCategories(list);
     await this.persist();
@@ -211,7 +285,7 @@ export class Store {
     this.tx = this.tx.map((t) => {
       if (!set.has(t.id)) return t;
       const p = typeof patch === 'function' ? patch(t) : patch;
-      const n = normalizeTx({ ...t, ...p, id: t.id, updatedAt: Date.now() });
+      const n = normalizeTx(this.fixPayer({ ...t, ...p, id: t.id, updatedAt: Date.now() }));
       changed.push(n);
       return n;
     });
@@ -259,8 +333,10 @@ export class Store {
   }
 
   async saveSettings(patch) {
-    this.settings = { ...this.settings, ...patch };
+    this.settings = { ...this.settings, ...patch, updatedAt: Date.now() };
+    if (this.remote) { this.settingsPending = true; writeJSON(SETTINGS_PENDING_KEY, true); }
     await this.persist();
+    if (this.remote) this.syncSettings().then(() => this.emit({ background: true }));
   }
 
   learnCategories(list) {

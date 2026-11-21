@@ -1,6 +1,6 @@
 # Home Budget
 
-A free, mobile-first web app for a shared home budget for two people. It is based on the `NewBudget_sys` Google Sheet.
+A free, mobile-first web app for a shared home budget for **one to six people**. It started from the `NewBudget_sys` Google Sheet.
 It is a static site written in plain HTML, CSS and JavaScript. There is no build step, no server and no dependencies. It is hosted for free on GitHub Pages
 and can be installed on a phone ("Add to Home Screen"). It also works offline.
 
@@ -16,9 +16,14 @@ and can be installed on a phone ("Add to Home Screen"). It also works offline.
 | **Settings** (⚙) | `DB_Setup` | People, currency and categories. Import and export as CSV or JSON. |
 
 Every screen has a compact month switcher at the top right, and most have a row of quick stats.
-On **Home**, the selector at the top left (All / Gabi / Oana) narrows the big "left this month" number, the tiles,
-the category donut and "Still to pay" to one person. "Spent vs income" always shows both people and turns
-green → orange → red as someone's expenses approach and pass their income.
+The selector at the top left (**All** or one person) narrows **Home, Month and Stats** to one person's expenses and income.
+With two people it is a pair of pills; with three or more it is a button that opens a small menu.
+"Spent vs income" shows everyone and turns green → orange → red as expenses approach and pass income.
+
+The layout adapts to the number of people:
+* **1 person:** nothing is ever assigned to a payer (no selector, no "paid by"), and "Still to pay" shows more rows.
+* **2 people:** adds "fair share" and the "who paid more" line.
+* **3–6 people:** more room for "Spent vs income"; no fair-share comparison.
 
 Names are compared without notes in brackets, so "Chiria (cash)" and "Chiria" count as one expense in Stats and
 in the quick-add / copy-from-last-month features. Expenses whose name contains a keyword (Joint, Cash, …) are
@@ -26,16 +31,16 @@ coloured everywhere; edit the keywords in **Settings → Highlight colours**.
 
 ## Data
 
-* **Shared mode (recommended):** the app reads and writes the `DB_Transactions` tab of your Google Sheet
-  through a small Apps Script in your own Google account, protected by a secret key.
-  Setup: **[apps-script/SETUP.md](apps-script/SETUP.md)**. Each phone keeps a local copy and a queue of changes,
-  so it is fast, works offline, and catches up later.
+* **Shared mode (recommended):** the app reads and writes a Google Sheet (`DB_Transactions` tab, plus an `App_Settings` tab
+  for names, categories and colours) through a small Apps Script that lives in **your own** Google account and is protected
+  by a secret key. Setup takes about 10 minutes: **[app/apps-script/SETUP.md](app/apps-script/SETUP.md)**.
+  The app can copy the script for you with a fresh secret filled in, and **Share via…** invites other phones.
+  Each phone keeps a local copy and a queue of changes, so it is fast, works offline and catches up later.
 * **Local mode:** without a connection, data lives only in this browser (`localStorage`).
-  Use **Settings → Export / Import** to back it up or move it. CSV import accepts the sheet's
-  `DB_Transactions` download (`Active` = to pay, `Hidden`/`Inactive` = paid).
+  Use **Settings → Export / Import** to back it up or move it.
 
-Code: `app/js/store.js` (local copy + change queue), `app/js/sync.js` (talks to the script),
-`apps-script/Code.gs` (the script).
+Code: `app/js/store.js` (local copy, change queue, settings sync), `app/js/sync.js` (talks to the script),
+`app/apps-script/Code.gs` (the script).
 
 ## Run locally
 
@@ -57,7 +62,6 @@ the repo private, Cloudflare Pages or Netlify host private repos for free. Point
 ## Structure
 
 ```
-apps-script/Code.gs, SETUP.md   Google Sheet backend + guide
 app/
   index.html, manifest.webmanifest, sw.js, icons/
   css/styles.css
@@ -66,7 +70,9 @@ app/
   js/stats.js      calculations (pure)
   js/charts.js     tiny SVG charts
   js/csv.js        import/export
-  js/sync.js       Google Sheet API client
+  js/sync.js       Google Sheet API client, invite codes
+  js/people-editor.js  1–6 people editor
   js/ui.js         shared components, edit sheet
   js/views/*.js    one file per screen
+  apps-script/     Code.gs (Google Sheet backend) + SETUP.md
 ```

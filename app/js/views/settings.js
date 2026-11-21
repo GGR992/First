@@ -1,26 +1,32 @@
-// Settings: shared Google Sheet, people, categories, currency, import/export.
+// Settings: shared Google Sheet, people, categories, highlight colours, import/export.
 import { esc, todayISO, KW_COLORS } from '../util.js';
-import { DEFAULT_SETTINGS } from '../store.js';
 import { parseCSV, rowsToTransactions, toCSV, download } from '../csv.js';
-import { normalizeTx } from '../store.js';
-import { isLikelyScriptUrl } from '../sync.js';
+import { normalizeTx, DEFAULT_SETTINGS } from '../store.js';
+import { isLikelyScriptUrl, makeInviteCode, makeInviteLink, parseInvite } from '../sync.js';
+import { peopleEditorHTML, bindPeopleEditor } from '../people-editor.js';
 
-const SETUP_GUIDE = 'https://github.com/GGR992/First/blob/main/apps-script/SETUP.md';
+const GUIDE = 'https://github.com/GGR992/First/blob/main/app/apps-script/SETUP.md';
+const TEMPLATE_URL = 'apps-script/Code.gs';
+
+let template = '';        // the Apps Script code, fetched from this app
+let scriptShown = false;  // fallback box with the script, if the clipboard is blocked
 
 function makeSecret() {
   const bytes = crypto.getRandomValues(new Uint8Array(18));
   return btoa(String.fromCharCode(...bytes)).replace(/\+/g, 'x').replace(/\//g, 'y').replace(/=+$/, '');
 }
 
-function inviteLink(store) {
-  const cfg = store.syncConfig();
-  if (!cfg) return '';
-  const base = location.origin + location.pathname;
-  return `${base}#/connect?u=${encodeURIComponent(cfg.url)}&k=${encodeURIComponent(cfg.key)}`;
-}
-
 async function copyText(text) {
   try { await navigator.clipboard.writeText(text); return true; } catch { return false; }
+}
+
+async function loadTemplate() {
+  if (template) return template;
+  try {
+    const r = await fetch(TEMPLATE_URL, { cache: 'no-cache' });
+    if (r.ok) template = await r.text();
+  } catch { /* offline */ }
+  return template;
 }
 
 export const actions = {
@@ -52,27 +58,47 @@ export const actions = {
     await ctx.store.clear();
     ctx.toast('All data cleared');
   },
-  'gen-secret'() {
-    const inp = document.getElementById('sync-key');
-    inp.value = makeSecret();
-    inp.type = 'text';
-    copyText(inp.value);
-  },
-  async 'copy-secret'(el, ctx) {
-    const v = document.getElementById('sync-key').value;
-    if (v && await copyText(v)) ctx.toast('Secret copied');
+  /** Builds the Apps Script with a fresh secret already filled in, and copies it. */
+  async 'copy-script'(el, ctx) {
+    const keyInput = document.getElementById('sync-key');
+    if (!keyInput.value.trim()) keyInput.value = makeSecret();
+    const code = (await loadTemplate()).replace("'PASTE_YOUR_SECRET_HERE'", `'${keyInput.value.trim()}'`);
+    if (!code || code.indexOf(keyInput.value.trim()) < 0) { ctx.toast('Could not load the script. Check your connection.'); return; }
+    const box = document.getElementById('script-box');
+    box.value = code;
+    if (await copyText(code)) {
+      ctx.toast('Script copied — paste it in Apps Script');
+    } else {
+      // Some browsers block the clipboard: show the code so it can be selected by hand.
+      scriptShown = true;
+      document.getElementById('script-wrap').hidden = false;
+      box.focus();
+      box.select();
+      ctx.toast('Select all in the box below and copy it');
+    }
   },
   async 'sync-pull'(el, ctx) {
     try { await ctx.store.pull(); ctx.toast('Up to date'); } catch (e) { ctx.toast(`Sync failed: ${e.message}`); }
   },
+  /** Share the connection with another person: opens the phone's share sheet (WhatsApp, e-mail, …). */
   async 'share-invite'(el, ctx) {
-    const link = inviteLink(ctx.store);
-    const text = 'Open this link on your phone to connect the budget app to our shared sheet:';
+    const cfg = ctx.store.syncConfig();
+    if (!cfg) return;
+    const link = makeInviteLink(cfg.url, cfg.key);
+    const code = makeInviteCode(cfg.url, cfg.key);
+    const text = `Join our shared budget.\n\n1) Open this link in your phone's browser (Safari / Chrome):\n${link}\n\n` +
+      `2) If it opens inside another app, copy this code instead and paste it in the Budget app → Settings → Join:\n${code}`;
     if (navigator.share) {
-      try { await navigator.share({ title: 'Home Budget', text, url: link }); return; } catch { /* cancelled */ }
+      try { await navigator.share({ title: 'Join our budget', text }); return; } catch (e) { if (e.name === 'AbortError') return; }
     }
-    if (await copyText(link)) ctx.toast('Invite link copied – send it privately');
-    else prompt('Copy this link and send it privately:', link);
+    if (await copyText(text)) ctx.toast('Invitation copied — paste it into any app');
+    else prompt('Copy this invitation and send it privately:', text);
+  },
+  async 'copy-code'(el, ctx) {
+    const cfg = ctx.store.syncConfig();
+    if (!cfg) return;
+    if (await copyText(makeInviteCode(cfg.url, cfg.key))) ctx.toast('Code copied');
+    else prompt('Copy this code:', makeInviteCode(cfg.url, cfg.key));
   },
   'disconnect'(el, ctx) {
     if (!confirm('Disconnect this device from the Google Sheet? The sheet keeps all data; this device keeps a copy that will no longer sync.')) return;
@@ -81,37 +107,58 @@ export const actions = {
   },
 };
 
-function syncCard(store) {
-  if (store.connected) {
-    const st = store.sync;
-    const last = st.lastPull ? new Date(st.lastPull).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'never';
-    const bad = st.state === 'error' || st.state === 'offline';
-    return `<div class="card">
-      <div class="card-head"><h2>Shared Google Sheet</h2></div>
-      <div class="status-line"><span class="status-dot ${bad ? 'bad' : 'on'}"></span>
-        <span>${bad ? esc(st.error || 'Not synced') : 'Connected'} · last update ${esc(last)}${store.pending.length ? ` · ${store.pending.length} change(s) waiting` : ''}</span></div>
-      <p class="muted">Everything you add, pay or edit is written to <b>DB_Transactions</b>, and changes made by the other phone (or in the sheet) show up here.</p>
-      <div class="btn-row wrap">
-        <button class="btn primary" data-action="share-invite">Invite the other phone</button>
-        <button class="btn" data-action="sync-pull">Sync now</button>
-        <button class="btn ghost danger" data-action="disconnect">Disconnect</button>
-      </div>
-      <p class="hint left">The invite link contains your secret key. Only send it in a private chat.</p>
-    </div>`;
-  }
+function connectedCard(store) {
+  const st = store.sync;
+  const last = st.lastPull ? new Date(st.lastPull).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'never';
+  const bad = st.state === 'error' || st.state === 'offline';
   return `<div class="card">
     <div class="card-head"><h2>Shared Google Sheet</h2></div>
-    <p class="muted">Connect to your <b>DB_Transactions</b> tab so you both see and edit the same data.
-      You need a small script in your Google account first (one-time, ~10 min): <a href="${SETUP_GUIDE}" target="_blank" rel="noopener">step-by-step guide</a>.</p>
+    <div class="status-line"><span class="status-dot ${bad ? 'bad' : 'on'}"></span>
+      <span>${bad ? esc(st.error || 'Not synced') : 'Connected'} · last update ${esc(last)}${store.pending.length ? ` · ${store.pending.length} change(s) waiting` : ''}</span></div>
+    <p class="muted">Everything you add, pay or edit is written to the <b>DB_Transactions</b> tab, and changes made by others show up here.
+      ${store.settingsSynced ? 'Names, categories and colours are shared too.' : ''}</p>
+    ${store.settingsSynced ? '' : `<p class="callout slim">The script in your sheet is an older version, so names and categories are <b>not</b> shared between phones yet.
+      Update it with the current code — see <a href="${GUIDE}" target="_blank" rel="noopener">the guide</a>, “Updating the script”.</p>`}
+    <div class="btn-row wrap">
+      <button class="btn primary" data-action="share-invite">Share via…</button>
+      <button class="btn" data-action="copy-code">Copy code</button>
+      <button class="btn" data-action="sync-pull">Sync now</button>
+    </div>
+    <p class="hint left">“Share via…” opens your phone's share menu (WhatsApp, e-mail, messages…). The invitation contains your secret key — only send it to people you trust.</p>
+    <button class="btn ghost danger" data-action="disconnect">Disconnect this device</button>
+  </div>`;
+}
+
+function setupCard() {
+  return `<div class="card">
+    <div class="card-head"><h2>Shared Google Sheet</h2></div>
+    <p class="muted">Keep your budget in <b>your own Google Sheet</b> so everyone sees the same data on every phone. It's free, and only people you invite can use it. One-time setup, about 10 minutes on a computer.</p>
+    <ol class="steps">
+      <li>Create a blank Google Sheet (open <b>sheets.new</b>) and name it anything.</li>
+      <li>In it choose <b>Extensions → Apps Script</b> and delete all the code in the editor.</li>
+      <li>Tap <b>Copy script</b> below, paste it into the editor and click Save 💾.</li>
+      <li>Click <b>Deploy → New deployment</b> → ⚙ <b>Web app</b>. Set “Execute as” to <b>Me</b> and “Who has access” to <b>Anyone</b>, then Deploy and Authorize (Google's “unverified app” warning is normal for your own script: Advanced → Go to… → Allow).</li>
+      <li>Copy the <b>Web app URL</b> (ends in <b>/exec</b>), paste it below and tap <b>Connect</b>.</li>
+    </ol>
+    <button type="button" class="btn block" data-action="copy-script">Copy script</button>
+    <div id="script-wrap" ${scriptShown ? '' : 'hidden'}><textarea id="script-box" class="script-box" readonly rows="6" aria-label="Script to copy"></textarea></div>
     <form id="sync-form" class="form" autocomplete="off">
-      <label class="field"><span>Web app URL (ends with /exec)</span>
+      <label class="field"><span>Web app URL</span>
         <input id="sync-url" name="url" inputmode="url" placeholder="https://script.google.com/macros/s/…/exec" required></label>
-      <label class="field"><span>Secret key (the same one you put in the script)</span>
-        <div class="secret-row"><input id="sync-key" name="key" type="password" required placeholder="secret">
-          <button type="button" class="btn" data-action="gen-secret" title="Generate a random secret">Generate</button></div></label>
-      <p class="hint left">Tip: tap Generate, then paste the copied secret into the script's <code>SECRET</code> line.</p>
+      <label class="field"><span>Secret key <small>(filled in by “Copy script”; if you already have a script, type its secret)</small></span>
+        <input id="sync-key" name="key" type="text" autocapitalize="off" spellcheck="false" required placeholder="secret"></label>
       <p class="form-error" role="alert"></p>
       <button class="btn primary block">Connect</button>
+    </form>
+    <p class="hint left">Stuck? <a href="${GUIDE}" target="_blank" rel="noopener">Open the step-by-step guide</a>.</p>
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>Join an existing shared budget</h2></div>
+    <p class="muted">If someone sent you a link or a code (starts with <b>BUDGET-</b>), paste it here.</p>
+    <form id="join-form" class="form" autocomplete="off">
+      <label class="field"><span>Link or code</span><input name="invite" placeholder="Paste the link or the BUDGET-… code" autocapitalize="off" spellcheck="false" required></label>
+      <p class="form-error" role="alert"></p>
+      <button class="btn">Join</button>
     </form>
   </div>`;
 }
@@ -134,41 +181,39 @@ function rulesCard(store) {
       <select name="color" aria-label="Colour">${colorOptions('blue')}</select>
       <button class="btn">Add rule</button>
     </form>
-    <p class="hint left">Rules are saved on this device. Set the same ones on the other phone if you change them.</p>
+    <p class="hint left">${store.connected && store.settingsSynced ? 'Shared with everyone connected to the sheet.' : 'Saved on this device.'}</p>
     <button class="btn ghost block" data-action="reset-rules">Restore defaults</button>
+  </div>`;
+}
+
+function catBlock(store, key, title) {
+  const list = store.settings[key];
+  return `<div class="card">
+    <div class="card-head"><h2>${title}</h2></div>
+    <div class="chips-wrap">${list.map((c) => `<span class="chip static">${esc(c)}
+      <button type="button" data-action="remove-cat" data-kind="${key}" data-cat="${esc(c)}" aria-label="Remove ${esc(c)}">✕</button></span>`).join('')}</div>
+    <form class="inline-form" data-add-cat="${key}">
+      <input name="name" placeholder="New category" required aria-label="New category">
+      <button class="btn">Add</button>
+    </form>
   </div>`;
 }
 
 export function render({ store }) {
   const s = store.settings;
-  const catBlock = (key, title) => `
-    <div class="card">
-      <div class="card-head"><h2>${title}</h2></div>
-      <div class="chips-wrap">${s[key].map((c) => `<span class="chip static">${esc(c)}
-        <button type="button" data-action="remove-cat" data-kind="${key}" data-cat="${esc(c)}" aria-label="Remove ${esc(c)}">✕</button></span>`).join('')}</div>
-      <form class="inline-form" data-add-cat="${key}">
-        <input name="name" placeholder="New category" required aria-label="New category">
-        <button class="btn">Add</button>
-      </form>
-    </div>`;
-
   return `<section class="stack">
-    ${syncCard(store)}
+    ${store.connected ? connectedCard(store) : setupCard()}
 
     <div class="card">
       <div class="card-head"><h2>People</h2></div>
-      <form id="people-form" class="form">
-        ${s.people.map((p, i) => `<label class="field"><span>Person ${i + 1}</span><input name="p${i}" value="${esc(p)}" required></label>`).join('')}
-        <label class="field"><span>Currency label</span><input name="currency" value="${esc(s.currency)}" placeholder="lei"></label>
-        <p class="hint left">Names must match the Payer column in the sheet. Renaming also updates past transactions.</p>
-        <button class="btn primary">Save</button>
-      </form>
+      <p class="muted">Who shares this budget — from one person to six.</p>
+      ${peopleEditorHTML(s.people.filter(Boolean), { currency: s.currency, submit: 'Save',
+        hint: 'Renaming a person also updates their past transactions. With one person, expenses are never assigned to anybody.' })}
     </div>
 
     ${rulesCard(store)}
-
-    ${catBlock('expenseCategories', 'Expense categories')}
-    ${catBlock('incomeCategories', 'Income categories')}
+    ${catBlock(store, 'expenseCategories', 'Expense categories')}
+    ${catBlock(store, 'incomeCategories', 'Income categories')}
 
     <div class="card">
       <div class="card-head"><h2>Data</h2></div>
@@ -189,12 +234,13 @@ export function render({ store }) {
         : '<button class="btn danger ghost" data-action="clear-all">Delete all data on this device</button>'}
     </div>
 
-    <p class="hint">Budget app · v3 · works offline · <a href="https://github.com/GGR992/First" target="_blank" rel="noopener">source</a></p>
+    <p class="hint">Budget app · v3.5 · works offline · <a href="https://github.com/GGR992/First" target="_blank" rel="noopener">source</a></p>
   </section>`;
 }
 
 export function mount(root, ctx) {
   const { store } = ctx;
+  if (!store.connected) loadTemplate(); // ready before “Copy script” is tapped (clipboard needs a quick reaction)
 
   const syncForm = root.querySelector('#sync-form');
   if (syncForm) syncForm.addEventListener('submit', async (e) => {
@@ -203,7 +249,6 @@ export function mount(root, ctx) {
     const url = syncForm.elements.url.value.trim();
     const key = syncForm.elements.key.value.trim();
     if (!isLikelyScriptUrl(url)) { err.textContent = 'That does not look like an Apps Script web app URL (https://script.google.com/macros/s/…/exec).'; return; }
-    if (store.tx.length && !confirm(`This device has ${store.tx.length} transactions. After connecting, it will show the data from the Google Sheet instead. Continue?`)) return;
     const btn = syncForm.querySelector('button.primary');
     btn.disabled = true;
     btn.textContent = 'Connecting…';
@@ -212,24 +257,29 @@ export function mount(root, ctx) {
       const n = await store.connect(url, key);
       ctx.toast(`Connected · ${n} transactions loaded`);
     } catch (ex) {
-      err.textContent = `Could not connect: ${ex.message}. Check the URL, the secret, and that the deployment has access “Anyone”.`;
+      err.textContent = `Could not connect: ${ex.message}. Check the URL, that the secret is the same as in the script, and that “Who has access” is “Anyone”. After editing the script, deploy a new version.`;
       btn.disabled = false;
       btn.textContent = 'Connect';
     }
   });
 
-  root.querySelector('#people-form').addEventListener('submit', async (e) => {
+  const join = root.querySelector('#join-form');
+  if (join) join.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const f = e.target.elements;
-    const old = store.settings.people;
-    const people = old.map((_, i) => f[`p${i}`].value.trim()).filter(Boolean);
-    if (new Set(people).size !== people.length) { ctx.toast('Names must be different'); return; }
-    await store.saveSettings({ people, currency: f.currency.value.trim() });
-    for (let i = 0; i < old.length; i++) {
-      if (people[i] && people[i] !== old[i]) {
-        const ids = store.tx.filter((t) => t.payer === old[i]).map((t) => t.id);
-        if (ids.length) await store.updateMany(ids, { payer: people[i] });
-      }
+    const err = join.querySelector('.form-error');
+    const inv = parseInvite(join.elements.invite.value);
+    if (!inv) { err.textContent = 'That does not look like a link or code from the app.'; return; }
+    err.textContent = '';
+    await ctx.connectTo(inv.url, inv.key);
+  });
+
+  bindPeopleEditor(root.querySelector('.people-form'), async ({ people, renames, removed, currency }) => {
+    const affected = removed.reduce((n, name) => n + store.tx.filter((t) => t.payer === name).length, 0);
+    if (removed.length && !confirm(`Remove ${removed.join(', ')}? Their ${affected} transaction${affected === 1 ? '' : 's'} stay in History but are no longer counted per person.`)) return;
+    await store.saveSettings({ people, currency, configured: true });
+    for (const [from, to] of renames) {
+      const ids = store.tx.filter((t) => t.payer === from).map((t) => t.id);
+      if (ids.length) await store.updateMany(ids, { payer: to });
     }
     ctx.toast('Saved');
   });

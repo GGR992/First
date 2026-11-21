@@ -1,6 +1,6 @@
 // Stats: detailed view (the "trend analyzer" + charts part of the sheet).
 import { money, esc, monthName, monthLabel, addMonths, pct, monthShort, baseKey } from '../util.js';
-import { summarize, trend, categoryTrend, topItems, allTime, personTrend, expensesOf } from '../stats.js';
+import { summarize, trend, categoryTrend, sparseTrend, topItems, allTime, expensesOf } from '../stats.js';
 import { monthBars, hbars, catColor } from '../charts.js';
 import { statStrip, segmented, emptyState, deltaBadge, txRow } from '../ui.js';
 
@@ -34,12 +34,17 @@ export function mount(root, ctx) {
 export function render({ store, state }) {
   const s = store.settings;
   const m = state.month;
-  if (!store.tx.length) return emptyState('No data yet', 'Stats appear once you add some expenses.');
+  // The person selector at the top narrows everything on this screen to one person's expenses and income.
+  const who = s.people.length > 1 && s.people.includes(state.person) ? state.person : 'all';
+  const txs = store.txFor(who);
+  if (!txs.length) return emptyState('No data yet', who === 'all' ? 'Stats appear once you add some expenses.' : `${esc(who)} has nothing recorded yet.`);
 
-  const cur = summarize(store.tx, m, s.people);
-  const prev = summarize(store.tx, addMonths(m, -1), s.people);
-  const t = trend(store.tx, m, range);
-  const all = allTime(store.tx);
+  const cur = summarize(txs, m, s.people);
+  const prev = summarize(txs, addMonths(m, -1), s.people);
+  let t = trend(txs, m, range);
+  const firstWithData = t.findIndex((d) => d.expenses || d.income);
+  if (firstWithData > 0) t = t.slice(firstWithData); // no empty bars before the first month with data
+  const all = allTime(txs);
   const withData = t.filter((d) => d.expenses);
   const avgRange = withData.length ? withData.reduce((a, d) => a + d.expenses, 0) / withData.length : 0;
 
@@ -57,21 +62,26 @@ export function render({ store, state }) {
   const gone = prev.byCategory.filter((c) => !cur.byCategory.some((x) => x.category === c.category));
 
   // Drill-down
-  const usedCats = [...new Set(expensesOf(store.tx).map((x) => x.category))].sort();
+  const usedCats = [...new Set(expensesOf(txs).map((x) => x.category))].sort();
   if (!category || !usedCats.includes(category)) category = cur.byCategory[0]?.category || usedCats[0];
-  const catTx = store.tx.filter((x) => x.type === 'expense' && x.category === category);
+  const catTx = txs.filter((x) => x.type === 'expense' && x.category === category);
   if (item && !catTx.some((x) => baseKey(x.description) === item)) item = null;
   const itemTx = item ? catTx.filter((x) => baseKey(x.description) === item) : catTx;
   const itemName = item ? topItems(catTx).find((i) => i.key === item)?.description : '';
-  const ct = categoryTrend(store.tx, category, m, range, item);
+  // Used in only a few months? Show exactly those months (with the year when needed) instead of an empty window.
+  const sparse = sparseTrend(txs, category, item, 12);
+  let ct = sparse || categoryTrend(txs, category, m, range, item);
+  if (sparse) {
+    const years = new Set(sparse.map((d) => d.month.slice(0, 4)));
+    const withYear = years.size > 1 || !years.has(m.slice(0, 4));
+    ct = sparse.map((d) => ({ ...d, label: withYear ? `${monthShort(d.month)} ’${d.month.slice(2, 4)}` : monthShort(d.month) }));
+  }
+  const thisMonthValue = itemTx.filter((x) => x.month === m).reduce((a, x) => a + x.amount, 0);
   const catAll = itemTx.reduce((a, x) => a + x.amount, 0);
   const catMonths = new Set(itemTx.map((x) => x.month)).size;
   const scoped = itemsScope === 'month' ? catTx.filter((x) => x.month === m) : catTx;
   const items = topItems(scoped).slice(0, 12);
   const monthList = itemsScope === 'month' ? (item ? scoped.filter((x) => baseKey(x.description) === item) : scoped) : [];
-
-  // Person trend
-  const pt = personTrend(store.tx, s.people, m, Math.min(range, 6));
 
   return `<section class="stack">
     ${statStrip([
@@ -89,7 +99,7 @@ export function render({ store, state }) {
     </div>
 
     <div class="card">
-      <div class="card-head"><h2>${esc(monthLabel(m))} by category</h2><span class="muted">${money(cur.expenses)}</span></div>
+      <div class="card-head"><h2>${esc(monthLabel(m))} by category${who !== 'all' ? ` · ${esc(who)}` : ''}</h2><span class="muted">${money(cur.expenses)}</span></div>
       ${catRows.length ? hbars(catRows, { total: cur.expenses, action: 'pick-cat' }) : '<p class="muted">No expenses this month.</p>'}
       ${gone.length ? `<p class="hint left">Not spent this month: ${gone.map((g) => `${esc(g.category)} (${money(g.amount)} last month)`).join(', ')}</p>` : ''}
     </div>
@@ -102,9 +112,10 @@ export function render({ store, state }) {
       ${statStrip([
         { label: 'Total ever', value: money(catAll, { decimals: 0 }) },
         { label: 'Avg / month', value: money(catMonths ? catAll / catMonths : 0, { decimals: 0 }) },
-        { label: monthShort(m), value: money(ct[ct.length - 1].expenses, { decimals: 0 }) },
+        { label: monthShort(m), value: money(thisMonthValue, { decimals: 0 }) },
       ])}
       ${monthBars(ct, { selected: m, showIncome: false })}
+      ${sparse ? `<p class="hint left">Only the ${sparse.length} month${sparse.length === 1 ? '' : 's'} with spending in this ${item ? 'expense' : 'category'} are shown.</p>` : ''}
       <div class="card-head sub"><h3>Top expenses</h3>
         ${segmented('scope', [{ value: 'all', label: 'All time' }, { value: 'month', label: monthShort(m) }], itemsScope, { action: 'scope' })}
       </div>
@@ -114,22 +125,6 @@ export function render({ store, state }) {
       </table>` : '<p class="muted">Nothing here.</p>'}
       ${items.length ? '<p class="hint left">Tap an expense to see only its month-by-month evolution above. Tap it again to go back. Notes like “(cash)” are ignored, so “Chiria (cash)” and “Chiria” count as one.</p>' : ''}
       ${monthList.length ? `<ul class="tx-list">${monthList.map((x) => txRow(store, x)).join('')}</ul>` : ''}
-    </div>
-
-    <div class="card">
-      <div class="card-head"><h2>Who paid, by month</h2></div>
-      <table class="table">
-        <thead><tr><th>Month</th>${s.people.map((p) => `<th class="num">${esc(p)}</th>`).join('')}<th class="num">Diff</th></tr></thead>
-        <tbody>${pt.slice().reverse().map((r) => {
-          const vals = s.people.map((p) => r[p]);
-          const diff = vals.length === 2 ? vals[0] - vals[1] : 0;
-          return `<tr class="${r.month === m ? 'sel' : ''}" data-action="pick-month" data-month="${r.month}">
-            <td>${esc(monthName(r.month))} <small class="muted">${r.month.slice(0, 4)}</small></td>
-            ${vals.map((v) => `<td class="num">${money(v, { decimals: 0 })}</td>`).join('')}
-            <td class="num">${vals.length === 2 ? money(diff, { sign: true, decimals: 0 }) : ''}</td></tr>`;
-        }).join('')}</tbody>
-      </table>
-      ${s.people.length === 2 ? `<p class="hint left">Diff = ${esc(s.people[0])} − ${esc(s.people[1])}. Positive means ${esc(s.people[0])} paid more.</p>` : ''}
     </div>
 
     <div class="card">
