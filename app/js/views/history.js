@@ -60,7 +60,7 @@ export function render({ store }) {
   }
   const months = [...new Set(store.tx.map((t) => t.month))].sort().reverse();
   const cats = [...new Set(store.tx.map((t) => t.category))].sort();
-  const active = ['type', 'month', 'category', 'payer', 'status'].filter((k) => f[k] !== 'all').length;
+  const active = ['type', 'month', 'category', 'payer', 'status'].filter((k) => f[k] !== 'all' && (k !== 'payer' || store.settings.people.length > 1)).length;
   return `<section class="stack">
     <div class="search">
       <input type="search" id="hist-q" placeholder="Search description, category, amount…" value="${esc(f.q)}" aria-label="Search">
@@ -72,7 +72,7 @@ export function render({ store }) {
         ${sel('status', 'Status', [['all', 'All'], ['unpaid', 'To pay'], ['paid', 'Paid']], f.status)}
         ${sel('month', 'Month', [['all', 'All months'], ...months.map((m) => [m, monthLabel(m)])], f.month)}
         ${sel('category', 'Category', [['all', 'All'], ...cats.map((c) => [c, c])], f.category)}
-        ${sel('payer', 'Payer', [['all', 'Everyone'], ...store.settings.people.map((p) => [p, p])], f.payer)}
+        ${store.settings.people.length > 1 ? sel('payer', 'Payer', [['all', 'Everyone'], ...store.settings.people.map((p) => [p, p])], f.payer) : ''}
       </div>
       <div class="btn-row"><button class="btn ghost" data-action="this-month">Selected month</button><button class="btn ghost" data-action="reset-filters">Clear</button></div>
     </details>

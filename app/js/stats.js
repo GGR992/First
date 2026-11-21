@@ -77,6 +77,21 @@ export function categoryTrend(txs, category, endMonth, n, itemKey = null) {
 }
 
 /**
+ * When a category (or one expense) was used in only a few months, show exactly those months
+ * (oldest → newest) instead of a mostly empty window. Returns null when it was used in more than `max` months.
+ */
+export function sparseTrend(txs, category, itemKey = null, max = 12) {
+  const byMonth = new Map();
+  for (const t of txs) {
+    if (t.type !== 'expense' || t.category !== category) continue;
+    if (itemKey && baseKey(t.description) !== itemKey) continue;
+    byMonth.set(t.month, (byMonth.get(t.month) || 0) + t.amount);
+  }
+  if (!byMonth.size || byMonth.size > max) return null;
+  return [...byMonth.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([month, expenses]) => ({ month, expenses }));
+}
+
+/**
  * Groups by expense name, ignoring "(…)" notes ("Chiria (cash)" + "Chiria" → one item).
  * Returns key, display name (without notes), total, count and the most recent transaction.
  */

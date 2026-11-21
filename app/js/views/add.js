@@ -216,7 +216,7 @@ function renderLast({ store, state }) {
           <span class="tx-sub">${esc(t.category)}${p.already ? ' · <b>already this month</b>' : ''}</span>
         </div>
         <input class="pick-amt" data-pick-amount="${t.id}" inputmode="decimal" value="${p.amount}" aria-label="Amount">
-        <button type="button" class="payer p${personIndex(store, p.payer)}" data-action="pick-swap" data-id="${t.id}">${esc(p.payer)}<span class="swap-ico">⇄</span></button>
+        ${s.people.length > 1 ? `<button type="button" class="payer p${personIndex(store, p.payer)}" data-action="pick-swap" data-id="${t.id}">${esc(p.payer)}<span class="swap-ico">⇄</span></button>` : ''}
       </li>`;
     }).join('')}</ul>
     <div class="sticky-cta"><button class="btn primary block" data-action="pick-add" ${selected.length ? '' : 'disabled'}>

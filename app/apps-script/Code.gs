@@ -1,32 +1,42 @@
 /**
- * Home Budget – Google Sheets API
+ * Home Budget – Google Sheets API  (script version 2)
  * ---------------------------------------------------------------
- * Paste this whole file into a NEW Apps Script project
- * (https://script.google.com → New project). See SETUP.md.
+ * HOW TO USE (details in SETUP.md):
+ *   1. Create a Google Sheet (or open the one you already use).
+ *   2. Extensions → Apps Script → delete everything → paste this file.
+ *   3. The app can paste it for you with your secret already filled in.
+ *   4. Deploy → New deployment → Web app → Execute as: Me, Who has access: Anyone.
  *
- * It reads and writes the "DB_Transactions" tab in the same format
- * the spreadsheet already uses:
- *   A Date | B Month | C Description | D Category | E Amount |
- *   F Payer | G Type | H ID | I Status
- * Status: Active = still to pay · Hidden / Inactive = paid.
+ * What it does:
+ *   • "DB_Transactions" tab (created automatically if missing):
+ *       A Date | B Month | C Description | D Category | E Amount |
+ *       F Payer | G Type | H ID | I Status
+ *     Status: Active = still to pay · Hidden / Inactive = paid.
+ *   • "App_Settings" tab (created automatically): shared settings such as the
+ *     people's names, categories and colours, so every phone sees the same.
  *
- * Only columns A–I are touched. Other tabs are never modified.
+ * Only these two tabs are touched. Other tabs are never modified.
  */
 
-// 1) The ID of your spreadsheet: the long part of its URL between /d/ and /edit
+// Leave as is when the script was created from inside the sheet (Extensions → Apps Script).
+// Only if you made a standalone script, put the spreadsheet ID here
+// (the long part of the sheet's address between /d/ and /edit).
 const SHEET_ID = 'PASTE_SPREADSHEET_ID_HERE';
 
-// 2) A long secret only you two know. The app must send the same one.
+// A long secret only you know. The app must send the same one.
 const SECRET = 'PASTE_YOUR_SECRET_HERE';
 
 // Usually no need to change anything below.
 const TAB = 'DB_Transactions';
+const SETTINGS_TAB = 'App_Settings';
 const COLS = 9;
+const SCRIPT_VERSION = 2;
+const HEADER = ['Date', 'Month', 'Description', 'Category', 'Amount', 'Payer', 'Type', 'ID', 'Status'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
   'August', 'September', 'October', 'November', 'December'];
 
 function doGet() {
-  return json_({ ok: true, app: 'home-budget', message: 'The Budget API is running. Connect from the app.' });
+  return json_({ ok: true, app: 'home-budget', version: SCRIPT_VERSION, message: 'The Budget API is running. Connect from the app.' });
 }
 
 function doPost(e) {
@@ -43,12 +53,18 @@ function doPost(e) {
   try {
     lock.waitLock(25000);
     if (body.action === 'list') {
-      return json_({ ok: true, transactions: listTx_(), serverTime: Date.now() });
+      return json_({ ok: true, version: SCRIPT_VERSION, transactions: listTx_(), serverTime: Date.now() });
     }
     if (body.action === 'batch') {
       const result = applyOps_(body.ops || []);
       SpreadsheetApp.flush();
       return json_({ ok: true, applied: result.applied });
+    }
+    if (body.action === 'getSettings') {
+      return json_(Object.assign({ ok: true }, readSettings_()));
+    }
+    if (body.action === 'setSettings') {
+      return json_(Object.assign({ ok: true }, writeSettings_(body.settings, body.updatedAt)));
     }
     return json_({ ok: false, error: 'unknown_action' });
   } catch (err) {
@@ -159,12 +175,60 @@ function toRow_(tx, prevStatus) {
   ];
 }
 
+/* ---------------- shared settings ---------------- */
+
+// Stored as JSON in App_Settings!B1, with the time of the last change in C1.
+// The newest change wins.
+function readSettings_() {
+  const sh = settingsSheet_();
+  const raw = String(sh.getRange(1, 2).getValue() || '');
+  let settings = null;
+  if (raw) {
+    try { settings = JSON.parse(raw); } catch (e) { settings = null; }
+  }
+  return { settings: settings, updatedAt: Number(sh.getRange(1, 3).getValue()) || 0 };
+}
+
+function writeSettings_(settings, updatedAt) {
+  if (!settings || typeof settings !== 'object') throw new Error('bad_settings');
+  const current = readSettings_();
+  const at = Number(updatedAt) || Date.now();
+  if (current.settings && current.updatedAt > at) {
+    return { settings: current.settings, updatedAt: current.updatedAt, accepted: false };
+  }
+  const sh = settingsSheet_();
+  sh.getRange(1, 1, 1, 3).setValues([['settings', JSON.stringify(settings), at]]);
+  return { settings: settings, updatedAt: at, accepted: true };
+}
+
 /* ---------------- helpers ---------------- */
 
+function spreadsheet_() {
+  if (SHEET_ID && SHEET_ID.indexOf('PASTE_') !== 0) return SpreadsheetApp.openById(SHEET_ID);
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) throw new Error('No spreadsheet: create this script from inside the sheet (Extensions → Apps Script) or fill in SHEET_ID');
+  return ss;
+}
+
+// The transactions tab; created with a header row if it does not exist yet.
 function sheet_() {
-  const ss = SpreadsheetApp.openById(SHEET_ID);
-  const sh = ss.getSheetByName(TAB);
-  if (!sh) throw new Error('Tab "' + TAB + '" not found');
+  const ss = spreadsheet_();
+  let sh = ss.getSheetByName(TAB);
+  if (!sh) {
+    sh = ss.insertSheet(TAB);
+    sh.getRange(1, 1, 1, COLS).setValues([HEADER]);
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+
+function settingsSheet_() {
+  const ss = spreadsheet_();
+  let sh = ss.getSheetByName(SETTINGS_TAB);
+  if (!sh) {
+    sh = ss.insertSheet(SETTINGS_TAB);
+    sh.getRange(1, 1, 1, 3).setValues([['settings', '', 0]]);
+  }
   return sh;
 }
 

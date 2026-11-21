@@ -20,6 +20,7 @@ export const personIndex = (store, name) => {
 };
 
 export function payerChip(store, t, { swap = true } = {}) {
+  if (store.settings.people.length < 2) return ''; // one person: nothing to assign
   const i = personIndex(store, t.payer);
   const canSwap = swap && store.settings.people.length > 1;
   return `<button type="button" class="payer p${i}" ${canSwap ? `data-action="swap" data-id="${t.id}" aria-label="Change payer (now ${esc(t.payer)})"` : 'disabled'}>
@@ -108,12 +109,14 @@ export function txForm(store, tx, { month, idPrefix = 'f' } = {}) {
   <label class="field"><span>Amount (${esc(s.currency)})</span>
     <input name="amount" inputmode="decimal" autocomplete="off" required placeholder="0" value="${tx?.amount ?? ''}">
   </label>
-  <div class="field"><span>Paid by</span>
-    <div class="seg" role="radiogroup" aria-label="Payer">
+  ${s.people.length < 2
+    ? `<input type="hidden" name="payer" value="${esc(s.people[0] || '')}">`
+    : `<div class="field"><span>Paid by</span>
+    <div class="seg${s.people.length > 3 ? ' wrap' : ''}" role="radiogroup" aria-label="Payer">
       ${s.people.map((p, i) => `<label class="seg-btn p${i}${payer === p ? ' on' : ''}">
         <input type="radio" name="payer" value="${esc(p)}" ${payer === p ? 'checked' : ''}>${esc(p)}</label>`).join('')}
     </div>
-  </div>
+  </div>`}
   <label class="field"><span>Category</span>
     <select name="category">${cats.map((c) => `<option ${c === tx?.category ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
   </label>
@@ -186,7 +189,7 @@ export function readTxForm(form) {
       type,
       description: f.description.value.trim(),
       amount,
-      payer: form.querySelector('input[name=payer]:checked')?.value || '',
+      payer: form.querySelector('input[name=payer]:checked')?.value || form.querySelector('input[type=hidden][name=payer]')?.value || '',
       category: f.category.value,
       month: f.month.value,
       date: f.date.value || `${f.month.value}-01`,

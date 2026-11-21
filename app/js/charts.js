@@ -58,8 +58,8 @@ export function monthBars(data, { selected, showIncome = true, action = 'pick-mo
       <rect x="${i * slot}" y="0" width="${slot}" height="${H}" fill="transparent"/>
       <rect x="${x}" y="${yy}" width="${bw}" height="${Math.max(H - bottom - yy, d.expenses ? 1.5 : 0)}" rx="3" class="bar"/>
       ${income}
-      <text x="${x + bw / 2}" y="${H - 7}" class="bar-label">${esc(monthShort(d.month))}</text>
-      <title>${esc(monthShort(d.month))}: spent ${money(d.expenses)}${showIncome ? ', income ' + money(d.income || 0) : ''}</title>
+      <text x="${x + bw / 2}" y="${H - 7}" class="bar-label">${esc(d.label || monthShort(d.month))}</text>
+      <title>${esc(d.label || monthShort(d.month))}: spent ${money(d.expenses)}${showIncome ? ', income ' + money(d.income || 0) : ''}</title>
     </g>`;
   }).join('');
   return `<svg class="bars" viewBox="0 0 ${W} ${H}" role="img" aria-label="Monthly totals">${bars}</svg>`;

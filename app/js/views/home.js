@@ -1,5 +1,5 @@
 // Home: the "at a glance" dashboard (top-right part of the sheet).
-// The person selector in the header (All / Gabi / Oana) narrows the big number,
+// The person selector in the header (All / one person) narrows the big number,
 // the stat tiles, the category donut and "Still to pay". "Spent vs income" always shows both people.
 import { money, esc, addMonths, monthName, pct, loadHue } from '../util.js';
 import { summarize } from '../stats.js';
@@ -54,9 +54,11 @@ function loadRow(store, p, d) {
 export function render({ store, state }) {
   const s = store.settings;
   const m = state.month;
-  const cur = summarize(store.tx, m, s.people);
+  const txs = store.txFor('all');
+  const cur = summarize(txs, m, s.people);
   const prevKey = addMonths(m, -1);
-  const prev = summarize(store.tx, prevKey, s.people);
+  const prev = summarize(txs, prevKey, s.people);
+  const n = s.people.length;
 
   if (!cur.list.length) {
     const hasPrev = prev.exp.length > 0;
@@ -71,7 +73,7 @@ export function render({ store, state }) {
     </section>`;
   }
 
-  const sel = s.people.includes(state.person) ? state.person : 'all';
+  const sel = n > 1 && s.people.includes(state.person) ? state.person : 'all';
   const one = sel !== 'all';
   const pick = (sm) => (one
     ? (sm.byPerson[sel] || ZERO)
@@ -87,18 +89,21 @@ export function render({ store, state }) {
   const catMap = {};
   for (const t of myExp) catMap[t.category] = (catMap[t.category] || 0) + t.amount;
   const cats = Object.entries(catMap).map(([category, amount]) => ({ category, amount })).sort((a, b) => b.amount - a.amount);
+  // Up to 6 categories; anything smaller is merged into "+N more" (not the category called "Other").
+  const SHOWN = cats.length > 7 ? 6 : cats.length;
+  const rest = cats.slice(SHOWN);
   const segments = [
-    ...cats.slice(0, 5).map((x) => ({ label: x.category, value: x.amount, color: catColor(x.category, s.expenseCategories) })),
-    ...(cats.length > 5 ? [{ label: 'Other', value: cats.slice(5).reduce((a, x) => a + x.amount, 0), color: '#94a3b8' }] : []),
+    ...cats.slice(0, SHOWN).map((x) => ({ label: x.category, value: x.amount, color: catColor(x.category, s.expenseCategories) })),
+    ...(rest.length ? [{ label: `+${rest.length} smaller`, value: rest.reduce((a, x) => a + x.amount, 0), color: '#94a3b8', note: rest.map((x) => x.category).join(', ') }] : []),
   ];
 
   const tiles = [
     { label: 'Expenses', value: money(c.spent), sub: deltaBadge(c.spent, pv.spent, { suffix: ' vs ' + monthName(prevKey).slice(0, 3) }) },
     { label: 'Income', value: money(c.income), sub: deltaBadge(c.income, pv.income, { goodWhenDown: false }) },
     { label: 'To pay', value: money(c.unpaid), sub: `${myUnpaid.length} item${myUnpaid.length === 1 ? '' : 's'}`, tone: myUnpaid.length ? 'warn' : 'good', tab: 'current' },
-    one
-      ? { label: 'Of income', value: c.income ? Math.round(pct(c.spent, c.income)) + '%' : '—', sub: 'spent', tone: c.income && c.spent > c.income ? 'bad' : '' }
-      : { label: 'Fair share', value: money(cur.fairShare, { decimals: 0 }), sub: `each of ${s.people.length}` },
+    n === 2 && !one
+      ? { label: 'Fair share', value: money(cur.fairShare, { decimals: 0 }), sub: 'each of 2' }
+      : { label: 'Of income', value: c.income ? Math.round(pct(c.spent, c.income)) + '%' : '—', sub: 'spent', tone: c.income && c.spent > c.income ? 'bad' : '' },
   ];
 
   return `<section class="stack">
@@ -114,21 +119,21 @@ export function render({ store, state }) {
     <div class="card">
       <div class="card-head"><h2>Spent vs income</h2></div>
       ${s.people.map((p) => loadRow(store, p, cur.byPerson[p] || ZERO)).join('')}
-      ${balanceLine(store, cur)}
+      ${n === 2 ? balanceLine(store, cur) : ''}
     </div>
 
     <div class="card">
       <div class="card-head"><h2>Where it went${one ? ` · ${esc(sel)}` : ''}</h2><a href="#/stats" class="link">Details</a></div>
       ${segments.length ? `<div class="donut-wrap">
         ${donut(segments, { center: money(c.spent, { decimals: 0 }), sub: `${myExp.length} expenses` })}
-        <ul class="legend">${segments.map((g) => `<li><i class="dot" style="background:${g.color}"></i><span>${esc(g.label)}</span><b>${pct(g.value, c.spent).toFixed(0)}%</b></li>`).join('')}</ul>
+        <ul class="legend">${segments.map((g) => `<li${g.note ? ` title="${esc(g.note)}"` : ''}><i class="dot" style="background:${g.color}"></i><span>${esc(g.label)}</span><b>${pct(g.value, c.spent).toFixed(0)}%</b></li>`).join('')}</ul>
       </div>` : `<p class="muted">${esc(sel)} has no expenses this month.</p>`}
     </div>
 
     <div class="card">
       <div class="card-head"><h2>Still to pay${one ? ` · ${esc(sel)}` : ''}</h2>${myUnpaid.length ? `<a href="#/current" class="link">All ${myUnpaid.length}</a>` : ''}</div>
       ${myUnpaid.length
-        ? `<ul class="tx-list">${myUnpaid.slice(0, 5).map((t) => txRow(store, t)).join('')}</ul>`
+        ? `<ul class="tx-list">${myUnpaid.slice(0, n === 1 ? 7 : 5).map((t) => txRow(store, t)).join('')}</ul>`
         : `<p class="muted">${one ? `${esc(sel)} has nothing left to pay ✅` : 'Everything is paid ✅'}</p>`}
     </div>
   </section>`;
